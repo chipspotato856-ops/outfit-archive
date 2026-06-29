@@ -187,6 +187,6 @@ export default function ArchivePage() {
   );
 }
 
-export const dynamic = "force-dynamic";
+
  
  
