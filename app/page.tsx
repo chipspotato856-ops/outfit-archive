@@ -2,38 +2,87 @@
 
 export const dynamic = "force-dynamic";
 
-import { useEffect, useRef, useState, useCallback } from "react";
+import { useEffect, useState, useRef } from "react";
 import { useRouter } from "next/navigation";
+import { motion, useMotionValue, useSpring, useTransform } from "framer-motion";
 import { createClient } from "@/lib/supabase/client";
 import { Photo } from "@/lib/types";
 
-// Stable random position seeded by photo id
+const SPREAD = 5000;
+
 function seededRandom(seed: string) {
   let h = 0;
   for (let i = 0; i < seed.length; i++) {
     h = (Math.imul(31, h) + seed.charCodeAt(i)) | 0;
   }
-  return ((h >>> 0) / 0xffffffff);
+  return (h >>> 0) / 0xffffffff;
 }
 
-function getPhotoStyle(photo: Photo, index: number) {
-  const r1 = seededRandom(photo.id + "x");
-  const r2 = seededRandom(photo.id + "y");
-  const r3 = seededRandom(photo.id + "rot");
-  const r4 = seededRandom(photo.id + "w");
-
-  const x = r1 * 3200 - 400;
-  const y = r2 * 2400 - 300;
-  const rot = r3 * 10 - 5;
-  const width = 180 + r4 * 80;
-
-  return { x, y, rot, width };
+function generateItems(photos: Photo[]) {
+  return photos.map((photo) => ({
+    photo,
+    x: (seededRandom(photo.id + "x") - 0.5) * SPREAD,
+    y: (seededRandom(photo.id + "y") - 0.5) * SPREAD,
+    depth: 0.3 + seededRandom(photo.id + "d") * 1.2,
+    baseSize: 150 + seededRandom(photo.id + "s") * 200,
+  }));
 }
 
 function formatDate(iso: string) {
   const d = new Date(iso);
   const months = ["JAN","FEB","MAR","APR","MAY","JUN","JUL","AUG","SEP","OCT","NOV","DEC"];
-  return `${months[d.getMonth()]} ${String(d.getDate()).padStart(2,"0")} ${d.getFullYear()}`;
+  return `${months[d.getMonth()]} ${String(d.getDate()).padStart(2, "0")} ${d.getFullYear()}`;
+}
+
+function PhotoItem({
+  item,
+  smoothMouseX,
+  smoothMouseY,
+  onClick,
+}: {
+  item: ReturnType<typeof generateItems>[0];
+  smoothMouseX: any;
+  smoothMouseY: any;
+  onClick: () => void;
+}) {
+  const PARALLAX_AMOUNT = 300;
+  const xMove = useTransform(smoothMouseX, (val: number) => val * PARALLAX_AMOUNT * item.depth * -1);
+  const yMove = useTransform(smoothMouseY, (val: number) => val * PARALLAX_AMOUNT * item.depth * -1);
+
+  if (!item.photo.url) return null;
+
+  return (
+    <motion.div
+      className="absolute origin-center group cursor-pointer"
+      style={{
+        left: `calc(50% + ${item.x}px)`,
+        top: `calc(50% + ${item.y}px)`,
+        width: item.baseSize,
+        scale: item.depth,
+        zIndex: Math.floor(item.depth * 100),
+        x: xMove,
+        y: yMove,
+      }}
+      whileHover={{
+        scale: item.depth + 0.08,
+        zIndex: 9999,
+        transition: { duration: 0.3, ease: "easeOut" },
+      }}
+      onClick={onClick}
+    >
+      <div className="relative w-full overflow-hidden bg-neutral-900 rounded-sm" style={{ aspectRatio: "4/5" }}>
+        <img
+          src={item.photo.url}
+          alt=""
+          className="w-full h-full object-cover brightness-75 contrast-125 hover:brightness-110 transition-all duration-700 ease-out pointer-events-none"
+          draggable={false}
+        />
+        <span className="absolute bottom-1.5 left-2 text-[9px] font-mono text-white/40 opacity-0 group-hover:opacity-100 transition-opacity duration-300">
+          {formatDate(item.photo.created_at)}
+        </span>
+      </div>
+    </motion.div>
+  );
 }
 
 export default function ArchivePage() {
@@ -42,34 +91,25 @@ export default function ArchivePage() {
   const [uploading, setUploading] = useState(false);
   const [activePhoto, setActivePhoto] = useState<Photo | null>(null);
   const [toast, setToast] = useState<string | null>(null);
-  const [visibleCount, setVisibleCount] = useState(0);
-
-  // Canvas pan state
-  const canvasRef = useRef<HTMLDivElement>(null);
-  const [offset, setOffset] = useState({ x: 0, y: 0 });
-  const isDragging = useRef(false);
-  const dragStart = useRef({ x: 0, y: 0 });
-  const offsetStart = useRef({ x: 0, y: 0 });
-  const didDrag = useRef(false);
-
   const fileInputRef = useRef<HTMLInputElement>(null);
   const router = useRouter();
   const supabase = createClient();
 
-  useEffect(() => { loadPhotos(); }, []);
+  const mouseX = useMotionValue(0);
+  const mouseY = useMotionValue(0);
+  const springConfig = { damping: 40, stiffness: 100, mass: 1 };
+  const smoothMouseX = useSpring(mouseX, springConfig);
+  const smoothMouseY = useSpring(mouseY, springConfig);
 
-  // Stagger photos appearing one by one
   useEffect(() => {
-    if (photos.length === 0) return;
-    setVisibleCount(0);
-    let i = 0;
-    const interval = setInterval(() => {
-      i++;
-      setVisibleCount(i);
-      if (i >= photos.length) clearInterval(interval);
-    }, 80);
-    return () => clearInterval(interval);
-  }, [photos]);
+    loadPhotos();
+    const handleMouseMove = (e: MouseEvent) => {
+      mouseX.set((e.clientX / window.innerWidth - 0.5) * 2);
+      mouseY.set((e.clientY / window.innerHeight - 0.5) * 2);
+    };
+    window.addEventListener("mousemove", handleMouseMove);
+    return () => window.removeEventListener("mousemove", handleMouseMove);
+  }, []);
 
   function showToast(msg: string) {
     setToast(msg);
@@ -77,7 +117,6 @@ export default function ArchivePage() {
   }
 
   async function loadPhotos() {
-    setLoading(false);
     try {
       const res = await fetch("/api/photos");
       if (res.ok) {
@@ -113,7 +152,7 @@ export default function ArchivePage() {
     setActivePhoto(null);
     const res = await fetch(`/api/photos/${id}`, { method: "DELETE" });
     if (res.ok) {
-      setPhotos(p => p.filter(ph => ph.id !== id));
+      setPhotos((p) => p.filter((ph) => ph.id !== id));
       showToast("Removed from archive");
     }
   }
@@ -124,220 +163,118 @@ export default function ArchivePage() {
     router.refresh();
   }
 
-  // Mouse drag
-  function onMouseDown(e: React.MouseEvent) {
-    if ((e.target as HTMLElement).closest(".photo-card")) return;
-    isDragging.current = true;
-    didDrag.current = false;
-    dragStart.current = { x: e.clientX, y: e.clientY };
-    offsetStart.current = { ...offset };
-    e.preventDefault();
-  }
-
-  function onMouseMove(e: React.MouseEvent) {
-    if (!isDragging.current) return;
-    const dx = e.clientX - dragStart.current.x;
-    const dy = e.clientY - dragStart.current.y;
-    if (Math.abs(dx) > 3 || Math.abs(dy) > 3) didDrag.current = true;
-    setOffset({ x: offsetStart.current.x + dx, y: offsetStart.current.y + dy });
-  }
-
-  function onMouseUp() { isDragging.current = false; }
-
-  // Touch drag
-  function onTouchStart(e: React.TouchEvent) {
-    if ((e.target as HTMLElement).closest(".photo-card")) return;
-    const t = e.touches[0];
-    isDragging.current = true;
-    didDrag.current = false;
-    dragStart.current = { x: t.clientX, y: t.clientY };
-    offsetStart.current = { ...offset };
-  }
-
-  function onTouchMove(e: React.TouchEvent) {
-    if (!isDragging.current) return;
-    const t = e.touches[0];
-    const dx = t.clientX - dragStart.current.x;
-    const dy = t.clientY - dragStart.current.y;
-    if (Math.abs(dx) > 3 || Math.abs(dy) > 3) didDrag.current = true;
-    setOffset({ x: offsetStart.current.x + dx, y: offsetStart.current.y + dy });
-    e.preventDefault();
-  }
-
-  function onTouchEnd() { isDragging.current = false; }
-
-  function handlePhotoClick(photo: Photo) {
-    if (didDrag.current) return;
-    setActivePhoto(photo);
-  }
+  const items = generateItems(photos);
 
   return (
-    <main
-      className="fixed inset-0 overflow-hidden"
-      style={{ background: "#EDE7DD", cursor: isDragging.current ? "grabbing" : "grab" }}
-      onMouseDown={onMouseDown}
-      onMouseMove={onMouseMove}
-      onMouseUp={onMouseUp}
-      onMouseLeave={onMouseUp}
-      onTouchStart={onTouchStart}
-      onTouchMove={onTouchMove}
-      onTouchEnd={onTouchEnd}
-    >
-      {/* Top bar */}
-      <div className="fixed top-0 left-0 right-0 z-50 flex items-center justify-between px-6 py-5 pointer-events-none">
-        <span style={{ fontFamily: "'Fraunces', serif", fontStyle: "italic", fontWeight: 600, fontSize: 22, color: "#1A1816", pointerEvents: "auto" }}>
-          archive
-        </span>
-        <div className="flex items-center gap-3" style={{ pointerEvents: "auto" }}>
-          <span style={{ fontFamily: "monospace", fontSize: 11, color: "#9C8568", background: "white", border: "1px solid #C4B8A5", borderRadius: 100, padding: "4px 10px" }}>
-            {photos.length} {photos.length === 1 ? "fit" : "fits"}
-          </span>
-          <button onClick={handleLogout} style={{ fontSize: 12, color: "#9C8568", background: "none", border: "none", cursor: "pointer" }}>
-            log out
-          </button>
-        </div>
-      </div>
+    <div className="relative w-screen h-screen bg-[#0a0a0a] overflow-hidden select-none font-sans">
 
-      {/* Infinite canvas */}
-      <div
-        ref={canvasRef}
-        style={{
-          position: "absolute",
-          inset: 0,
-          transform: `translate(${offset.x}px, ${offset.y}px)`,
-          willChange: "transform",
-          transition: isDragging.current ? "none" : "transform 0.05s ease-out",
-        }}
+      {/* Draggable canvas */}
+      <motion.div
+        drag
+        dragConstraints={{ left: -SPREAD / 2, right: SPREAD / 2, top: -SPREAD / 2, bottom: SPREAD / 2 }}
+        dragElastic={0.2}
+        className="absolute inset-0 w-full h-full cursor-grab active:cursor-grabbing flex items-center justify-center"
       >
         {loading ? null : photos.length === 0 ? (
-          <div style={{ position: "absolute", top: "40vh", left: "50%", transform: "translateX(-50%)", textAlign: "center", pointerEvents: "none" }}>
-            <p style={{ fontFamily: "'Fraunces', serif", fontStyle: "italic", fontSize: 26, color: "#1A1816", marginBottom: 8 }}>empty rail</p>
-            <p style={{ fontSize: 13, color: "#6b6055", maxWidth: 260, lineHeight: 1.5 }}>Tap + to add your first fit. Drag to explore the canvas.</p>
+          <div className="text-center pointer-events-none">
+            <p className="text-white/60 text-lg font-medium">empty archive</p>
+            <p className="text-white/30 text-sm mt-1">tap + to add your first fit</p>
           </div>
         ) : (
-          photos.map((photo, i) => {
-            const { x, y, rot, width } = getPhotoStyle(photo, i);
-            const visible = i < visibleCount;
-            if (!photo.url) return null;
-            return (
-              <div
-                key={photo.id}
-                className="photo-card"
-                onClick={() => handlePhotoClick(photo)}
-                style={{
-                  position: "absolute",
-                  left: x,
-                  top: y,
-                  width,
-                  background: "white",
-                  padding: "8px 8px 28px",
-                  boxShadow: "0 2px 4px rgba(26,24,22,0.06), 0 8px 24px rgba(26,24,22,0.12)",
-                  transform: `rotate(${rot}deg) translateY(${visible ? 0 : 20}px)`,
-                  opacity: visible ? 1 : 0,
-                  transition: "opacity 0.5s ease, transform 0.5s cubic-bezier(.16,1,.3,1), box-shadow 0.2s ease",
-                  cursor: "pointer",
-                  userSelect: "none",
-                  willChange: "transform, opacity",
-                }}
-                onMouseEnter={e => {
-                  const el = e.currentTarget;
-                  el.style.transform = `rotate(0deg) translateY(-6px) scale(1.03)`;
-                  el.style.boxShadow = "0 8px 16px rgba(26,24,22,0.10), 0 24px 48px rgba(26,24,22,0.18)";
-                  el.style.zIndex = "10";
-                }}
-                onMouseLeave={e => {
-                  const el = e.currentTarget;
-                  el.style.transform = `rotate(${rot}deg) translateY(0px) scale(1)`;
-                  el.style.boxShadow = "0 2px 4px rgba(26,24,22,0.06), 0 8px 24px rgba(26,24,22,0.12)";
-                  el.style.zIndex = "1";
-                }}
-              >
-                <img
-                  src={photo.url}
-                  alt=""
-                  draggable={false}
-                  style={{ display: "block", width: "100%", aspectRatio: "3/4", objectFit: "cover", background: "#DCD3C3" }}
-                />
-                <span style={{ position: "absolute", bottom: 8, left: 10, fontFamily: "monospace", fontSize: 9, color: "#C4B8A5", letterSpacing: "0.03em" }}>
-                  {formatDate(photo.created_at)}
-                </span>
-              </div>
-            );
-          })
+          items.map((item) => (
+            <PhotoItem
+              key={item.photo.id}
+              item={item}
+              smoothMouseX={smoothMouseX}
+              smoothMouseY={smoothMouseY}
+              onClick={() => setActivePhoto(item.photo)}
+            />
+          ))
         )}
+      </motion.div>
+
+      {/* UI Overlay */}
+      <div className="absolute inset-0 pointer-events-none flex flex-col justify-between p-8 z-[9999]">
+        <header className="flex justify-between items-start w-full">
+          <motion.div initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 1 }}>
+            <h1 className="text-white text-xl md:text-2xl font-medium tracking-tight">archive</h1>
+            <p className="text-neutral-500 text-sm mt-1">
+              {photos.length > 0 ? `${photos.length} fit${photos.length === 1 ? "" : "s"} in your archive` : "an infinite canvas of outfits."}
+            </p>
+          </motion.div>
+
+          <motion.button
+            initial={{ opacity: 0, y: -20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 1, delay: 0.1 }}
+            onClick={handleLogout}
+            className="pointer-events-auto bg-white/10 hover:bg-white/20 backdrop-blur-md text-white/60 hover:text-white px-4 py-2 rounded-full text-xs transition-all"
+          >
+            log out
+          </motion.button>
+        </header>
+
+        <footer className="flex justify-center w-full">
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 1, delay: 0.5 }}
+            className="pointer-events-auto flex gap-3"
+          >
+            <input ref={fileInputRef} type="file" accept="image/*" multiple className="hidden" onChange={(e) => handleFiles(e.target.files)} />
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              disabled={uploading}
+              className="bg-white text-black px-6 py-3 rounded-full text-sm font-medium tracking-wide hover:scale-105 transition-transform disabled:opacity-50"
+            >
+              {uploading ? "Adding…" : "+ Add fit"}
+            </button>
+          </motion.div>
+        </footer>
       </div>
-
-      {/* Upload FAB */}
-      <input ref={fileInputRef} type="file" accept="image/*" multiple className="hidden" onChange={e => handleFiles(e.target.files)} />
-      <button
-        onClick={() => fileInputRef.current?.click()}
-        disabled={uploading}
-        style={{
-          position: "fixed", bottom: 28, right: 28, zIndex: 60,
-          width: 56, height: 56, borderRadius: "50%",
-          background: "#1A1816", color: "#EDE7DD",
-          border: "none", fontSize: 26, cursor: "pointer",
-          boxShadow: "0 8px 24px rgba(26,24,22,0.28)",
-          display: "flex", alignItems: "center", justifyContent: "center",
-          transition: "transform 0.2s ease, background 0.2s ease",
-        }}
-        onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.background = "#9C8568"; (e.currentTarget as HTMLButtonElement).style.transform = "scale(1.08)"; }}
-        onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background = "#1A1816"; (e.currentTarget as HTMLButtonElement).style.transform = "scale(1)"; }}
-      >
-        {uploading ? "…" : "+"}
-      </button>
-
-      {/* Hint */}
-      {photos.length > 0 && (
-        <div style={{ position: "fixed", bottom: 34, left: "50%", transform: "translateX(-50%)", fontFamily: "monospace", fontSize: 10, color: "#C4B8A5", letterSpacing: "0.06em", pointerEvents: "none" }}>
-          DRAG TO EXPLORE
-        </div>
-      )}
 
       {/* Lightbox */}
       {activePhoto && activePhoto.url && (
-        <div
-          style={{
-            position: "fixed", inset: 0, zIndex: 100,
-            background: "rgba(26,24,22,0.92)",
-            display: "flex", alignItems: "center", justifyContent: "center",
-            padding: 24,
-            animation: "fadeIn 0.2s ease",
-          }}
-          onClick={e => { if (e.target === e.currentTarget) setActivePhoto(null); }}
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          className="fixed inset-0 z-[99999] bg-black/90 flex items-center justify-center p-6"
+          onClick={(e) => { if (e.target === e.currentTarget) setActivePhoto(null); }}
         >
-          <style>{`@keyframes fadeIn { from { opacity:0 } to { opacity:1 } } @keyframes scaleIn { from { opacity:0; transform:scale(0.92) } to { opacity:1; transform:scale(1) } }`}</style>
-          <button onClick={() => setActivePhoto(null)} style={{ position: "absolute", top: 24, right: 26, background: "none", border: "none", color: "#EDE7DD", fontSize: 30, cursor: "pointer", opacity: 0.8 }}>×</button>
-          <img
+          <button onClick={() => setActivePhoto(null)} className="absolute top-6 right-6 text-white/60 hover:text-white text-3xl leading-none">×</button>
+          <motion.img
+            initial={{ opacity: 0, scale: 0.92 }}
+            animate={{ opacity: 1, scale: 1 }}
+            transition={{ duration: 0.25, ease: [0.16, 1, 0.3, 1] }}
             src={activePhoto.url}
             alt=""
-            style={{ maxWidth: "100%", maxHeight: "78vh", objectFit: "contain", boxShadow: "0 20px 60px rgba(0,0,0,0.5)", animation: "scaleIn 0.25s cubic-bezier(.16,1,.3,1)" }}
+            className="max-w-full max-h-[78vh] object-contain"
+            style={{ boxShadow: "0 20px 60px rgba(0,0,0,0.5)" }}
           />
-          <div style={{ position: "absolute", bottom: 28, left: 0, right: 0, display: "flex", justifyContent: "center" }}>
-            <span style={{ fontFamily: "monospace", fontSize: 11, color: "#C4B8A5", letterSpacing: "0.06em" }}>
+          <div className="absolute bottom-7 left-0 right-0 flex justify-center">
+            <span className="font-mono text-xs text-white/30 tracking-widest">
               {formatDate(activePhoto.created_at)}
             </span>
           </div>
           <button
             onClick={() => handleDelete(activePhoto.id)}
-            style={{ position: "absolute", bottom: 24, right: 24, background: "none", border: "1px solid rgba(232,169,138,0.4)", color: "#e8a98a", borderRadius: 100, padding: "7px 14px", fontSize: 12, cursor: "pointer" }}
+            className="absolute bottom-6 right-6 text-[#e8a98a] border border-[#e8a98a]/40 rounded-full px-4 py-2 text-xs hover:bg-[#e8a98a]/10 transition-colors"
           >
             Remove
           </button>
-        </div>
+        </motion.div>
       )}
 
       {/* Toast */}
       {toast && (
-        <div style={{ position: "fixed", bottom: 28, left: "50%", transform: "translateX(-50%)", background: "#1A1816", color: "#EDE7DD", padding: "10px 18px", borderRadius: 100, fontSize: 13, zIndex: 200, animation: "fadeIn 0.2s ease" }}>
+        <motion.div
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="fixed bottom-7 left-1/2 -translate-x-1/2 bg-white text-black px-4 py-2 rounded-full text-sm z-[999999]"
+        >
           {toast}
-        </div>
+        </motion.div>
       )}
-
-      <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600&display=swap');
-        * { -webkit-tap-highlight-color: transparent; }
-      `}</style>
-    </main>
+    </div>
   );
 }
