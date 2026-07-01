@@ -1,5 +1,7 @@
+"use client";
+export const dynamic = "force-dynamic";
 import React, { useEffect, useState, useRef } from "react";
-import { motion, useMotionValue, useSpring, useTransform } from "motion/react";
+import { motion, useMotionValue, useSpring, useTransform } from "framer-motion";
 import { Instagram } from "lucide-react";
 
 // Placeholder images - replace these with your own fit pics
