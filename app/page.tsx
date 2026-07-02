@@ -1,9 +1,9 @@
 "use client";
 export const dynamic = "force-dynamic";
+
 import React, { useEffect, useState, useRef } from "react";
 import { motion, useMotionValue, useSpring, useTransform } from "framer-motion";
 
-// Placeholder images - replace these with your own fit pics
 const images = [
   "https://images.unsplash.com/photo-1529139574466-a303027c1d8b?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&q=80&w=1080",
   "https://images.unsplash.com/photo-1612731486606-2614b4d74921?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&q=80&w=1080",
@@ -14,32 +14,27 @@ const images = [
   "https://images.unsplash.com/photo-1532453288672-3a27e9be9efd?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&q=80&w=1080"
 ];
 
-const ITEM_COUNT = 80; // More items for that "infinite stars" feel
-const SPREAD = 5000; // How wide the canvas is spread out
+const ITEM_COUNT = 80;
+const SPREAD = 5000;
 
-// Generate random positions and depths for the images
 const generateItems = () => {
   return Array.from({ length: ITEM_COUNT }).map((_, i) => {
-    // Depth ranges from 0.1 (far away) to 1.5 (very close)
     const depth = 0.1 + Math.random() * 1.4;
     return {
       id: i,
       src: images[i % images.length],
-      // Spread them across a massive virtual coordinate system
       x: (Math.random() - 0.5) * SPREAD,
       y: (Math.random() - 0.5) * SPREAD,
       depth,
-      // The further away, the smaller it appears (base size tweaked by depth later)
-      baseSize: 150 + Math.random() * 200, 
+      baseSize: 150 + Math.random() * 200,
     };
   });
 };
 
 function PhotoItem({ item, smoothMouseX, smoothMouseY }: { item: any; smoothMouseX: any; smoothMouseY: any }) {
-  const PARALLAX_AMOUNT = 300; 
-  
-  const xMove = useTransform(smoothMouseX, (val) => val * PARALLAX_AMOUNT * item.depth * -1);
-  const yMove = useTransform(smoothMouseY, (val) => val * PARALLAX_AMOUNT * item.depth * -1);
+  const PARALLAX_AMOUNT = 300;
+  const xMove = useTransform(smoothMouseX, (val: number) => val * PARALLAX_AMOUNT * item.depth * -1);
+  const yMove = useTransform(smoothMouseY, (val: number) => val * PARALLAX_AMOUNT * item.depth * -1);
 
   return (
     <motion.div
@@ -48,7 +43,7 @@ function PhotoItem({ item, smoothMouseX, smoothMouseY }: { item: any; smoothMous
         left: `calc(50% + ${item.x}px)`,
         top: `calc(50% + ${item.y}px)`,
         width: item.baseSize,
-        scale: item.depth, // Scale based on depth to simulate 3D space
+        scale: item.depth,
         zIndex: Math.floor(item.depth * 100),
         x: xMove,
         y: yMove,
@@ -59,7 +54,6 @@ function PhotoItem({ item, smoothMouseX, smoothMouseY }: { item: any; smoothMous
         transition: { duration: 0.3, ease: "easeOut" }
       }}
     >
-      {/* Image Container */}
       <div className="relative w-full aspect-[4/5] overflow-hidden bg-neutral-900 rounded-sm">
         <img
           src={item.src}
@@ -73,14 +67,12 @@ function PhotoItem({ item, smoothMouseX, smoothMouseY }: { item: any; smoothMous
 }
 
 export default function App() {
-  const [items, setItems] = useState([]);
+  const [items, setItems] = useState<any[]>([]);
   const containerRef = useRef(null);
 
-  // Track raw mouse position
   const mouseX = useMotionValue(0);
   const mouseY = useMotionValue(0);
 
-  // Spring animations for ultra-smooth floating movement
   const springConfig = { damping: 40, stiffness: 100, mass: 1 };
   const smoothMouseX = useSpring(mouseX, springConfig);
   const smoothMouseY = useSpring(mouseY, springConfig);
@@ -89,7 +81,6 @@ export default function App() {
     setItems(generateItems());
 
     const handleMouseMove = (e: MouseEvent) => {
-      // Normalize mouse coordinates from -1 to 1 based on screen center
       const x = (e.clientX / window.innerWidth - 0.5) * 2;
       const y = (e.clientY / window.innerHeight - 0.5) * 2;
       mouseX.set(x);
@@ -102,8 +93,6 @@ export default function App() {
 
   return (
     <div className="relative w-screen h-screen bg-[#0a0a0a] overflow-hidden select-none font-sans">
-      
-      {/* Draggable massive canvas */}
       <motion.div
         ref={containerRef}
         drag
@@ -112,20 +101,18 @@ export default function App() {
         className="absolute inset-0 w-full h-full cursor-grab active:cursor-grabbing flex items-center justify-center"
       >
         {items.map((item) => (
-          <PhotoItem 
-            key={item.id} 
-            item={item} 
-            smoothMouseX={smoothMouseX} 
-            smoothMouseY={smoothMouseY} 
+          <PhotoItem
+            key={item.id}
+            item={item}
+            smoothMouseX={smoothMouseX}
+            smoothMouseY={smoothMouseY}
           />
         ))}
       </motion.div>
 
-      {/* UI Overlay - Minimalist exact theme */}
       <div className="absolute inset-0 pointer-events-none flex flex-col justify-between p-8 z-[9999]">
-        {/* Top Header */}
         <header className="flex justify-between items-start w-full">
-          <motion.div 
+          <motion.div
             initial={{ opacity: 0, y: -20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 1 }}
@@ -137,19 +124,22 @@ export default function App() {
               an infinite canvas of outfits.
             </p>
           </motion.div>
-          
-          <motion.a 
+
+          <motion.a
             href="#"
             initial={{ opacity: 0, y: -20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 1, delay: 0.1 }}
             className="pointer-events-auto bg-white/10 hover:bg-white/20 backdrop-blur-md text-white p-2 rounded-full transition-colors"
           >
-            <svg width='20' height='20' viewBox='0 0 24 24' fill='none' stroke='currentColor' strokeWidth='2'><rect x='2' y='2' width='20' height='20' rx='5'/><circle cx='12' cy='12' r='4'/><circle cx='17.5' cy='6.5' r='1' fill='currentColor' stroke='none'/></svg>
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <rect x="2" y="2" width="20" height="20" rx="5"/>
+              <circle cx="12" cy="12" r="4"/>
+              <circle cx="17.5" cy="6.5" r="1" fill="currentColor" stroke="none"/>
+            </svg>
           </motion.a>
         </header>
 
-        {/* Bottom Footer / Action */}
         <footer className="flex justify-center w-full">
           <motion.div
             initial={{ opacity: 0, y: 20 }}
@@ -163,9 +153,6 @@ export default function App() {
           </motion.div>
         </footer>
       </div>
-
     </div>
   );
 }
-
-
