@@ -35,7 +35,7 @@ const generateItems = () => {
   });
 };
 
-function PhotoItem({ item, smoothMouseX, smoothMouseY }) {
+function PhotoItem({ item, smoothMouseX, smoothMouseY }: { item: any; smoothMouseX: any; smoothMouseY: any }) {
   const PARALLAX_AMOUNT = 300; 
   
   const xMove = useTransform(smoothMouseX, (val) => val * PARALLAX_AMOUNT * item.depth * -1);
@@ -167,4 +167,5 @@ export default function App() {
     </div>
   );
 }
+
 
