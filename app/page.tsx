@@ -2,7 +2,6 @@
 export const dynamic = "force-dynamic";
 import React, { useEffect, useState, useRef } from "react";
 import { motion, useMotionValue, useSpring, useTransform } from "framer-motion";
-import { Instagram } from "lucide-react";
 
 // Placeholder images - replace these with your own fit pics
 const images = [
@@ -146,7 +145,7 @@ export default function App() {
             transition={{ duration: 1, delay: 0.1 }}
             className="pointer-events-auto bg-white/10 hover:bg-white/20 backdrop-blur-md text-white p-2 rounded-full transition-colors"
           >
-            <Instagram size={20} />
+            <svg width='20' height='20' viewBox='0 0 24 24' fill='none' stroke='currentColor' strokeWidth='2'><rect x='2' y='2' width='20' height='20' rx='5'/><circle cx='12' cy='12' r='4'/><circle cx='17.5' cy='6.5' r='1' fill='currentColor' stroke='none'/></svg>
           </motion.a>
         </header>
 
@@ -168,3 +167,4 @@ export default function App() {
     </div>
   );
 }
+
